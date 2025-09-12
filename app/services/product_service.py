@@ -1,0 +1,80 @@
+import httpx
+import asyncio
+from typing import List, Dict, Any
+from app.config import settings
+from app.services.elasticsearch_service import ElasticsearchService
+
+class ProductService:
+    def __init__(self):
+        self.es_service = ElasticsearchService()
+        
+    async def fetch_products_from_endpoint(self) -> List[Dict[str, Any]]:
+        """Fetch products from WordPress with proper data transformation"""
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.post(
+                    settings.product_endpoint,
+                    json={
+                        "jsonrpc": "2.0",
+                        "method": "get_products",
+                        "params": {},
+                        "id": 1
+                    },
+                    headers={"Content-Type": "application/json"}
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    raw_products = data.get("result", [])
+                    
+                    # Transform WordPress data to our format
+                    products = []
+                    for item in raw_products:
+                        # Only include products with valid prices
+                        price_str = item.get("price", "")
+                        if not price_str or price_str == "":
+                            continue
+                            
+                        try:
+                            price = float(price_str)
+                        except (ValueError, TypeError):
+                            continue
+                            
+                        products.append({
+                            "id": item.get("id"),
+                            "name": item.get("name", "Unknown Product"),
+                            "description": item.get("description", ""),
+                            "price": price,
+                            "category": ", ".join(item.get("categories", ["Uncategorized"])),
+                            "sku": str(item.get("id", ""))
+                        })
+                    
+                    return products
+                else:
+                    print(f"Error fetching products: {response.status_code}")
+                    return []
+                    
+            except Exception as e:
+                print(f"Exception fetching products: {e}")
+                return []
+    
+    async def fetch_and_index_products(self):
+        """Fetch products and index them in Elasticsearch"""
+        print("Fetching products from WordPress endpoint...")
+        products = await self.fetch_products_from_endpoint()
+        
+        if products:
+            print(f"Found {len(products)} products with valid prices")
+            print(f"Indexing {len(products)} products...")
+            await self.es_service.index_products(products)
+            print("Products indexed successfully!")
+        else:
+            print("No products found to index")
+    
+    async def search_products(self, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+        """Search products using Elasticsearch with error handling"""
+        try:
+            return await self.es_service.search_products(query, limit)
+        except Exception as e:
+            print(f"Product search error: {e}")
+            return []
