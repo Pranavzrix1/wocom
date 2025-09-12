@@ -1,47 +1,31 @@
-import dspy
-from typing import List, Dict, Any
-from app.agents.base_agent import BaseAgent
+# app/agents/product_finder_agent.py
 from app.services.product_service import ProductService
-
-class ProductSearch(dspy.Signature):
-    """Search for products and provide recommendations"""
-    user_query = dspy.InputField(desc="The user's product search query")
-    products = dspy.InputField(desc="List of relevant products found")
-    response = dspy.OutputField(desc="A helpful response with product recommendations")
-
-class ProductFinderAgent(BaseAgent):
+import dspy
+ 
+class ProductQuery(dspy.Signature):
+    """Convert natural language to product search query"""
+    user_query = dspy.InputField(desc="User's natural language query")
+    search_terms = dspy.OutputField(desc="Optimized search terms for product search")
+    response_template = dspy.OutputField(desc="How to present the results to user")
+ 
+class ProductFinderAgent:
     def __init__(self):
-        super().__init__()
-        self.search = dspy.ChainOfThought(ProductSearch)
         self.product_service = ProductService()
+        self.query_optimizer = dspy.ChainOfThought(ProductQuery)
     
-    async def process(self, query: str) -> str:
-        """Process product search queries"""
-        try:
-            # Search for products
-            products = await self.product_service.search_products(query, limit=5)
-            
-            # Format products for the LLM
-            products_text = self._format_products(products)
-            
-            # Generate response
-            result = self.search(user_query=query, products=products_text)
-            return result.response
-            
-        except Exception as e:
-            return f"I apologize, but I encountered an error while searching for products: {str(e)}"
-    
-    def _format_products(self, products: List[Dict[str, Any]]) -> str:
-        """Format products for LLM input"""
-        if not products:
-            return "No products found matching your query."
+    async def process(self, user_query: str) -> str:
+        # Optimize search query
+        result = self.query_optimizer(user_query=user_query)
+        search_terms = result.search_terms
         
-        formatted = []
-        for product in products:
-            formatted.append(
-                f"- {product.get('name', 'Unknown')} "
-                f"(${product.get('price', 'N/A')}) - "
-                f"{product.get('description', 'No description')}"
-            )
+        # Search products
+        products = await self.product_service.search_products(search_terms, limit=5)
         
-        return "\n".join(formatted)
+        if products:
+            product_list = "\n".join([
+                f"• {p['name']} - ${p['price']} ({p['category']})"
+                for p in products
+            ])
+            return f"Yes! Here are the shirts I found:\n\n{product_list}\n\nWould you like more details about any of these?"
+        else:
+            return "I don't have any shirts matching your criteria right now. Could you try a different search term?"

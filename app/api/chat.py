@@ -1,32 +1,41 @@
 from fastapi import APIRouter
 from pydantic import BaseModel
 from app.services.intent_service import IntentService
-from app.agents.general_agent import GeneralAgent
 from app.agents.product_finder_agent import ProductFinderAgent
-
-router = APIRouter()
-
+from app.agents.general_agent import GeneralAgent
+ 
 class ChatRequest(BaseModel):
     message: str
-
-class ChatResponse(BaseModel):
-    response: str
-    intent: str
-
-@router.post("/", response_model=ChatResponse)
-async def chat(request: ChatRequest):
-    """Handle chat messages with intent detection"""
+ 
+router = APIRouter()
+ 
+@router.post("/")
+async def chat_endpoint(request: ChatRequest):
+    # Use the existing IntentService
     intent_service = IntentService()
-    
-    # Classify intent
     intent = await intent_service.classify_intent(request.message)
     
     # Route to appropriate agent
     if intent == "product_finder":
-        agent = ProductFinderAgent()
+        # Handle product queries
+        from app.services.product_service import ProductService
+        product_service = ProductService()
+        products = await product_service.search_products(request.message, limit=5)
+        
+        if products:
+            product_list = "\n".join([
+                f"• {p['name']} - ${p['price']}"
+                for p in products
+            ])
+            response = f"Here are the products I found:\n\n{product_list}"
+        else:
+            response = "I couldn't find any products matching your request."
+            
     else:
-        agent = GeneralAgent()
+        # Handle general queries
+        response = "I'm a product search assistant. Try asking about shirts, hats, or other products!"
     
-    response = await agent.process(request.message)
-    
-    return ChatResponse(response=response, intent=intent)
+    return {
+        "response": response,
+        "intent": intent
+    }
