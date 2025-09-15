@@ -11,9 +11,10 @@ services:
     environment:
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/aiproducts
       - REDIS_URL=redis://redis:6379
+      - OPENAI_API_KEY=${OPENAI_API_KEY}
       - ELASTICSEARCH_URL=http://elasticsearch:9200
       - OLLAMA_URL=http://ollama:11434
-      - GEMINI_API_KEY=AIzaSyCsKJhgTOdQ72syjuBmOpjqE3w4Rmy99lE
+      - GEMINI_API_KEY=AIzaSyClTVTxyvOfo1AxlIkrXkMj7apIUvPRr78
     volumes:
       - ./app:/app/app
       - ./static:/app/static
@@ -45,6 +46,12 @@ services:
       - "9200:9200"
     volumes:
       - elasticsearch_data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:9200/_cluster/health || exit 1"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      
 
   ollama:
     image: ollama/ollama:latest

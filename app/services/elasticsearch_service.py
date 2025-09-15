@@ -18,7 +18,17 @@ class ElasticsearchService:
                     "price": {"type": "float"},
                     "category": {"type": "text", "analyzer": "standard"},
                     "sku": {"type": "keyword"},
-                    "embedding": {"type": "dense_vector", "dims": 1024}
+                    "embedding": {"type": "dense_vector", "dims": 1024},
+
+
+                    "status": {"type": "keyword"},
+                    "stock_status": {"type": "keyword"},
+                    "image": {"type": "keyword"},
+                    "images": {"type": "keyword"},
+
+                    "url": {"type": "keyword"},        # ✅ CORRECT PLACE - In mapping
+                    "slug": {"type": "keyword"} 
+
                 }
             }
         }
@@ -30,6 +40,78 @@ class ElasticsearchService:
                 print(f"Created index: {self.index_name}")
         except Exception as e:
             print(f"Error with index: {e}")
+
+
+    async def create_category_index(self):
+        """Create the categories index with mapping"""
+        category_mapping = {
+            "mappings": {
+                "properties": {
+                    "id": {"type": "integer"},
+                    "name": {"type": "text", "analyzer": "standard"},
+                    "slug": {"type": "keyword"},
+                    "description": {"type": "text", "analyzer": "standard"},
+                    "count": {"type": "integer"},
+                    "parent": {"type": "integer"}
+                }
+            }
+        }
+        
+        try:
+            category_index = "categories"
+            exists = await self.es.indices.exists(index=category_index)
+            if not exists:
+                await self.es.indices.create(index=category_index, body=category_mapping)
+                print(f"Created index: {category_index}")
+        except Exception as e:
+            print(f"Error creating category index: {e}")
+
+    async def index_categories(self, categories: List[Dict[str, Any]]):
+        """Index product categories"""
+        category_index = "categories"
+        
+        for category in categories:
+            try:
+                doc = {
+                    "id": category.get("id"),
+                    "name": category.get("name", ""),
+                    "slug": category.get("slug", ""),
+                    "description": category.get("description", ""),
+                    "count": category.get("count", 0),
+                    "parent": category.get("parent", 0)
+                }
+                
+                await self.es.index(index=category_index, id=category.get("id"), body=doc)
+            except Exception as e:
+                print(f"Error indexing category {category.get('id')}: {e}")
+
+    async def search_categories(self, query: str = "", limit: int = 50) -> List[Dict[str, Any]]:
+        """Search categories or get all if query is empty"""
+        category_index = "categories"
+        
+        try:
+            if not query:
+                # Get all categories
+                search_query = {"query": {"match_all": {}}, "size": limit}
+            else:
+                # Search specific categories
+                search_query = {
+                    "query": {
+                        "multi_match": {
+                            "query": query,
+                            "fields": ["name^2", "description"],
+                            "type": "best_fields"
+                        }
+                    },
+                    "size": limit
+                }
+            
+            result = await self.es.search(index=category_index, body=search_query)
+            return [hit["_source"] for hit in result["hits"]["hits"]]
+        except Exception as e:
+            print(f"Category search error: {e}")
+            return []
+
     
     async def index_products(self, products: List[Dict[str, Any]]):
         """Index products with embeddings"""
@@ -48,7 +130,19 @@ class ElasticsearchService:
                     "price": product.get("price", 0),
                     "category": product.get("category", ""),
                     "sku": product.get("sku", ""),
-                    "embedding": embedding
+                    "embedding": embedding,
+
+
+                    "status": product.get("status", "publish"),           # ✅ Actual value
+                    "stock_status": product.get("stock_status", "instock"), # ✅ Actual value
+                    "image": product.get("image"),                        # ✅ Actual value
+                    "images": product.get("images", []),                   # ✅ Actual value
+
+
+                    "url": product.get("url", ""),           # ✅ FIXED - Actual URL value
+                    "slug": product.get("slug", "")          # ✅ FIXED - Actual slug value
+
+
                 }
                 
                 await self.es.index(index=self.index_name, id=product.get("id"), body=doc)

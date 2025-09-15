@@ -46,8 +46,23 @@ class ProductService:
                             "description": item.get("description", ""),
                             "price": price,
                             "category": ", ".join(item.get("categories", ["Uncategorized"])),
-                            "sku": str(item.get("id", ""))
+                            "sku": str(item.get("id", "")),
+
+
+                            "status": item.get("status", "publish"),
+                            "stock_status": item.get("stock_status", "instock"),
+                            "images": item.get("images", []),  # This is the image array!
+                            "image": item.get("images", [None])[0] if item.get("images") else None,  # First image URL
+                        
+                            "url": item.get("permalink") or (
+                                f"https://newscnbnc.webserver9.com/product/{item.get('slug')}/" 
+                                if item.get("slug") 
+                                else f"https://newscnbnc.webserver9.com/product/{item.get('id')}/"
+                            ),
+                            "slug": item.get("slug", "")
+                        
                         })
+                    
                     
                     return products
                 else:
@@ -78,3 +93,56 @@ class ProductService:
         except Exception as e:
             print(f"Product search error: {e}")
             return []
+        
+
+    async def get_product_categories(self) -> List[Dict[str, Any]]:
+        """Fetch product categories from WooCommerce endpoint"""
+        async with httpx.AsyncClient() as client:
+            try:
+                # Call WooCommerce categories endpoint
+                response = await client.post(
+                    settings.product_endpoint,
+                    json={
+                        "jsonrpc": "2.0",  # ← ADD THIS
+                        "method": "get_product_categories",
+                        "params": {},
+                        "id": 1  # ← ADD THIS
+                    },
+                    headers={"Content-Type": "application/json"}  # ← ADD THIS
+                )
+                
+                if response.status_code == 200:
+                    data = response.json()
+                    print(f"🔍 Category Response Debug: {data}")  # ← ADD THIS DEBUG LINE
+                    
+                    # Try multiple response formats
+                    if data.get("success"):
+                        return data.get("data", [])
+                    elif data.get("result"):  # ← ADD THIS (same as products)
+                        return data.get("result", [])
+                    elif isinstance(data, list):  # ← ADD THIS (direct array)
+                        return data
+                    else:
+                        print(f"❌ Unexpected category response format: {data}")
+                
+                print(f"Categories fetch failed: {response.status_code}")
+                return []
+            except Exception as e:
+                print(f"Error fetching categories: {e}")
+                return []
+
+
+    async def fetch_and_index_categories(self):
+        """Fetch categories from WooCommerce and index in Elasticsearch"""
+        categories = await self.get_product_categories()
+        
+        if categories:
+            await self.es_service.index_categories(categories)
+            print(f"Indexed {len(categories)} categories")
+        else:
+            print("No categories to index")
+
+    async def search_categories(self, query: str = "", limit: int = 50) -> List[Dict[str, Any]]:
+        """Search categories using Elasticsearch"""
+        return await self.es_service.search_categories(query, limit)
+

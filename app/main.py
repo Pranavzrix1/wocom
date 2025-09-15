@@ -9,26 +9,44 @@ from app.api import products, chat
 from app.services.product_service import ProductService
 from app.services.elasticsearch_service import ElasticsearchService
 
+# ...existing code...
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
     print("Starting up...")
-    
-    # Initialize services
     es_service = ElasticsearchService()
     product_service = ProductService()
-    
+
     # Wait for Elasticsearch to be ready
-    await asyncio.sleep(10)
-    
-    # Create index and fetch products
+    import aiohttp
+    import time
+
+    es_url = settings.elasticsearch_url
+    max_wait = 60  # seconds
+    start = time.time()
+    while True:
+        try:
+            async with aiohttp.ClientSession() as session:
+                async with session.get(f"{es_url}/_cluster/health") as resp:
+                    if resp.status == 200:
+                        break
+        except Exception:
+            pass
+        if time.time() - start > max_wait:
+            print("Elasticsearch did not become ready in time.")
+            break
+        await asyncio.sleep(2)
+
     await es_service.create_product_index()
+    await es_service.create_category_index()  # ← ADD THIS
+
     await product_service.fetch_and_index_products()
-    
+    await product_service.fetch_and_index_categories()  # ← ADD THIS
+
     yield
-    
-    # Shutdown
     print("Shutting down...")
+# ...existing code...
+
+
 
 app = FastAPI(
     title="AI Product Search",
